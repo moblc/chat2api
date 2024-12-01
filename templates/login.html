@@ -13,20 +13,20 @@
 </head>
 <body class="bg-gradient-to-br from-blue-300 via-indigo-300 to-purple-400 min-h-screen flex items-center justify-center">
     <div class="bg-white p-8 rounded-xl shadow-2xl w-96 max-w-md">
-        <h2 class="text-3xl font-bold text-center text-gray-800 mb-4">登录</h2>
+        <h2 class="text-3xl font-bold text-center text-gray-800 mb-4">欢迎使用GPT号池</h2>
         <button
             type="button"
             onclick="openPopup()"
             class="w-full bg-gradient-to-r from-indigo-500 to-blue-500 text-white font-bold py-3 px-4 rounded-lg hover:opacity-90 transition duration-200 ease-in-out"
         >
-            RefreshToken / AccessToken
+            点击登录
         </button>
         <p class="text-xs text-gray-500 text-center mt-4">
-            <span class="font-semibold text-gray-800">非
-                <span class="font-bold text-indigo-600">RT</span>
-                与
-                <span class="font-bold text-indigo-600">AT</span>
-                的输入，将作为</span>
+            <span class="font-semibold text-gray-800">随意
+                <!-- <span class="font-bold text-indigo-600">RT</span> -->
+                <!-- 与 -->
+                <!-- <span class="font-bold text-indigo-600">AT</span> -->
+                输入内容，将作为</span>
             <span class="font-bold text-indigo-600">Seed</span>
             <span class="font-semibold text-gray-800">随机抽取后台账号</span>
         </p>
@@ -42,7 +42,7 @@
             <textarea
                 id="popup-input"
                 name="token"
-                placeholder="RefreshToken / AccessToken / SeedToken"
+                placeholder="随意输入内容"
                 class="w-full h-56 px-4 py-4 text-md rounded-md bg-gray-100 border-gray-300 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-200 text-gray-800 transition duration-200 ease-in-out mb-4"
                 style="resize: none;"
             ></textarea>
