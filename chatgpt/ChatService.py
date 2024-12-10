@@ -19,12 +19,12 @@ from utils.Logger import logger
 from utils.configs import (
     chatgpt_base_url_list,
     ark0se_token_url_list,
+    sentinel_proxy_url_list,
     history_disabled,
     pow_difficulty,
     conversation_only,
     enable_limit,
     upload_by_url,
-    check_model,
     auth_key,
     turnstile_solver_url,
     oai_language,
@@ -37,6 +37,7 @@ class ChatService:
         self.req_token = get_req_token(origin_token)
         self.chat_token = "gAAAAAB"
         self.s = None
+        self.ss = None
         self.ws = None
 
     async def set_dynamic_data(self, data):
@@ -86,6 +87,10 @@ class ChatService:
         self.ark0se_token_url = random.choice(ark0se_token_url_list) if ark0se_token_url_list else None
 
         self.s = Client(proxy=self.proxy_url, impersonate=self.impersonate)
+        if sentinel_proxy_url_list:
+            self.ss = Client(proxy=random.choice(sentinel_proxy_url_list), impersonate=self.impersonate)
+        else:
+            self.ss = self.s
 
         self.persona = None
         self.ark0se_token = None
@@ -126,8 +131,15 @@ class ChatService:
     async def set_model(self):
         self.origin_model = self.data.get("model", "gpt-3.5-turbo-0125")
         self.resp_model = model_proxy.get(self.origin_model, self.origin_model)
+        if "gizmo" in self.origin_model or "g-" in self.origin_model:
+            self.gizmo_id = "g-" + self.origin_model.split("g-")[-1]
+        else:
+            self.gizmo_id = None
+
         if "o1-preview" in self.origin_model:
             self.req_model = "o1-preview"
+        elif "o1-pro" in self.origin_model:
+            self.req_model = "o1-pro"
         elif "o1-mini" in self.origin_model:
             self.req_model = "o1-mini"
         elif "o1" in self.origin_model:
@@ -142,8 +154,6 @@ class ChatService:
             self.req_model = "gpt-4o"
         elif "gpt-4-mobile" in self.origin_model:
             self.req_model = "gpt-4-mobile"
-        elif "gpt-4-gizmo" in self.origin_model:
-            self.req_model = "gpt-4o"
         elif "gpt-4" in self.origin_model:
             self.req_model = "gpt-4"
         elif "gpt-3.5" in self.origin_model:
@@ -151,7 +161,7 @@ class ChatService:
         elif "auto" in self.origin_model:
             self.req_model = "auto"
         else:
-            self.req_model = "auto"
+            self.req_model = "gpt-4o"
 
     async def get_chat_requirements(self):
         if conversation_only:
@@ -162,41 +172,23 @@ class ChatService:
             config = get_config(self.user_agent)
             p = get_requirements_token(config)
             data = {'p': p}
-            r = await self.s.post(url, headers=headers, json=data, timeout=5)
+            r = await self.ss.post(url, headers=headers, json=data, timeout=5)
             if r.status_code == 200:
                 resp = r.json()
 
-                if check_model:
-                    r = await self.s.get(f'{self.base_url}/models', headers=headers, timeout=5)
-                    if r.status_code == 200:
-                        models = r.json().get('models')
-                        if not any(self.req_model in model.get("slug", "") for model in models):
-                            logger.error(f"Model {self.req_model} not support.")
-                            raise HTTPException(
-                                status_code=404,
-                                detail={
-                                    "message": f"The model `{self.origin_model}` does not exist or you do not have access to it.",
-                                    "type": "invalid_request_error",
-                                    "param": None,
-                                    "code": "model_not_found",
-                                },
-                            )
-                    else:
-                        raise HTTPException(status_code=404, detail="Failed to get models")
-                else:
-                    self.persona = resp.get("persona")
-                    if self.persona != "chatgpt-paid":
-                        if self.req_model == "gpt-4":
-                            logger.error(f"Model {self.resp_model} not support for {self.persona}")
-                            raise HTTPException(
-                                status_code=404,
-                                detail={
-                                    "message": f"The model `{self.origin_model}` does not exist or you do not have access to it.",
-                                    "type": "invalid_request_error",
-                                    "param": None,
-                                    "code": "model_not_found",
-                                },
-                            )
+                self.persona = resp.get("persona")
+                if self.persona != "chatgpt-paid":
+                    if self.req_model == "gpt-4" or self.req_model == "o1-preview":
+                        logger.error(f"Model {self.resp_model} not support for {self.persona}")
+                        raise HTTPException(
+                            status_code=404,
+                            detail={
+                                "message": f"The model `{self.origin_model}` does not exist or you do not have access to it.",
+                                "type": "invalid_request_error",
+                                "param": None,
+                                "code": "model_not_found",
+                            },
+                        )
 
                 turnstile = resp.get('turnstile', {})
                 turnstile_required = turnstile.get('required')
@@ -260,8 +252,8 @@ class ChatService:
                     detail = r.json().get("detail", r.json())
                 else:
                     detail = r.text
-                if "cf-spinner-please-wait" in detail:
-                    raise HTTPException(status_code=r.status_code, detail="cf-spinner-please-wait")
+                if "cf_chl_opt" in detail:
+                    raise HTTPException(status_code=r.status_code, detail="cf_chl_opt")
                 if r.status_code == 429:
                     raise HTTPException(status_code=r.status_code, detail="rate-limit")
                 raise HTTPException(status_code=r.status_code, detail=detail)
@@ -296,17 +288,26 @@ class ChatService:
             self.chat_headers.pop('openai-sentinel-ark' + 'ose-token', None)
             self.chat_headers.pop('openai-sentinel-turnstile-token', None)
 
-        if "gpt-4-gizmo" in self.origin_model:
-            gizmo_id = self.origin_model.split("gpt-4-gizmo-")[-1]
-            conversation_mode = {"kind": "gizmo_interaction", "gizmo_id": gizmo_id}
+        if self.gizmo_id:
+            conversation_mode = {"kind": "gizmo_interaction", "gizmo_id": self.gizmo_id}
+            logger.info(f"Gizmo id: {self.gizmo_id}")
         else:
             conversation_mode = {"kind": "primary_assistant"}
 
         logger.info(f"Model mapping: {self.origin_model} -> {self.req_model}")
         self.chat_request = {
             "action": "next",
+            "client_contextual_info": {
+                "is_dark_mode": False,
+                "time_since_loaded": random.randint(50, 500),
+                "page_height": random.randint(500, 1000),
+                "page_width": random.randint(1000, 2000),
+                "pixel_ratio": 1.5,
+                "screen_height": random.randint(800, 1200),
+                "screen_width": random.randint(1200, 2200),
+            },
             "conversation_mode": conversation_mode,
-            "force_nulligen": False,
+            "conversation_origin": None,
             "force_paragen": False,
             "force_paragen_model_slug": "",
             "force_rate_limit": False,
@@ -314,9 +315,14 @@ class ChatService:
             "history_and_training_disabled": self.history_disabled,
             "messages": chat_messages,
             "model": self.req_model,
+            "paragen_cot_summary_display_override": "allow",
+            "paragen_stream_type_override": None,
             "parent_message_id": self.parent_message_id if self.parent_message_id else f"{uuid.uuid4()}",
             "reset_rate_limits": False,
             "suggestions": [],
+            "supported_encodings": [],
+            "system_hints": [],
+            "timezone": "America/Los_Angeles",
             "timezone_offset_min": -480,
             "variant_purpose": "comparison_implicit",
             "websocket_request_id": f"{uuid.uuid4()}",
@@ -337,9 +343,9 @@ class ChatService:
                     if r.status_code == 429:
                         check_is_limit(detail, token=self.req_token, model=self.req_model)
                 else:
-                    if "cf-spinner-please-wait" in rtext:
-                        # logger.error(f"Failed to send conversation: cf-spinner-please-wait")
-                        raise HTTPException(status_code=r.status_code, detail="cf-spinner-please-wait")
+                    if "cf_chl_opt" in rtext:
+                        # logger.error(f"Failed to send conversation: cf_chl_opt")
+                        raise HTTPException(status_code=r.status_code, detail="cf_chl_opt")
                     if r.status_code == 429:
                         # logger.error(f"Failed to send conversation: rate-limit")
                         raise HTTPException(status_code=r.status_code, detail="rate-limit")
@@ -515,6 +521,10 @@ class ChatService:
     async def close_client(self):
         if self.s:
             await self.s.close()
+            del self.s
+        if self.ss:
+            await self.ss.close()
+            del self.ss
         if self.ws:
             await self.ws.close()
             del self.ws
