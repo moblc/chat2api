@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import random
 import uuid
@@ -86,9 +87,12 @@ class ChatService:
         self.host_url = random.choice(chatgpt_base_url_list) if chatgpt_base_url_list else "https://chatgpt.com"
         self.ark0se_token_url = random.choice(ark0se_token_url_list) if ark0se_token_url_list else None
 
-        self.s = Client(proxy=self.proxy_url, impersonate=self.impersonate)
+        session_id = hashlib.md5(self.req_token.encode()).hexdigest()
+        proxy_url = self.proxy_url.replace("{}", session_id) if self.proxy_url else None
+        self.s = Client(proxy=proxy_url, impersonate=self.impersonate)
         if sentinel_proxy_url_list:
-            self.ss = Client(proxy=random.choice(sentinel_proxy_url_list), impersonate=self.impersonate)
+            sentinel_proxy_url = (random.choice(sentinel_proxy_url_list)).replace("{}", session_id) if sentinel_proxy_url_list else None
+            self.ss = Client(proxy=sentinel_proxy_url, impersonate=self.impersonate)
         else:
             self.ss = self.s
 
@@ -179,7 +183,7 @@ class ChatService:
         url = f'{self.base_url}/sentinel/chat-requirements'
         headers = self.base_headers.copy()
         try:
-            config = get_config(self.user_agent)
+            config = get_config(self.user_agent, self.req_token)
             p = get_requirements_token(config)
             data = {'p': p}
             r = await self.ss.post(url, headers=headers, json=data, timeout=5)
@@ -207,7 +211,7 @@ class ChatService:
                     try:
                         if turnstile_solver_url:
                             res = await self.s.post(
-                                turnstile_solver_url, json={"url": "https://chatgpt.com", "p": p, "dx": turnstile_dx}
+                                turnstile_solver_url, json={"url": "https://chatgpt.com", "p": p, "dx": turnstile_dx, "ua": self.user_agent}
                             )
                             self.turnstile_token = res.json().get("t")
                     except Exception as e:
@@ -394,6 +398,20 @@ class ChatService:
 
     async def get_download_url(self, file_id):
         url = f"{self.base_url}/files/{file_id}/download"
+        headers = self.base_headers.copy()
+        try:
+            r = await self.s.get(url, headers=headers, timeout=10)
+            if r.status_code == 200:
+                download_url = r.json().get('download_url')
+                return download_url
+            else:
+                raise HTTPException(status_code=r.status_code, detail=r.text)
+        except Exception as e:
+            logger.error(f"Failed to get download url: {e}")
+            return ""
+
+    async def get_attachment_url(self, file_id, conversation_id):
+        url = f"{self.base_url}/conversation/{conversation_id}/attachment/{file_id}/download"
         headers = self.base_headers.copy()
         try:
             r = await self.s.get(url, headers=headers, timeout=10)
